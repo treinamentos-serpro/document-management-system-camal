@@ -1,5 +1,26 @@
 # Document Management System com GitHub Copilot
 
+## Backend DMS
+
+Execute `npm install` no diretório `backend`, seguido de `npm start`.
+Para executar os testes, use `npm test` no mesmo diretório.
+
+O backend fornece `POST /upload` (multipart no campo `file`), `GET /documents`
+e `GET /documents/:id/download`. As rotas exigem `req.user.id`, preenchido por
+middleware de identidade confiável antes do roteador. Autenticação não está
+implementada nesta fase; sem essa integração, as rotas retornam `401`.
+`GET /health` permanece público.
+
+| Variável | Padrão |
+| --- | --- |
+| `PORT` | `3000` |
+| `DMS_STORAGE_DIR` | `backend/storage`, independente do diretório de execução |
+| `DMS_MAX_FILE_SIZE_BYTES` | `10485760` (10 MiB); inteiro positivo |
+
+Os arquivos são locais, com nomes internos gerados pelo servidor. Metadados
+são mantidos somente em memória e são perdidos ao reiniciar o processo.
+O proprietário não é aceito por campos, query ou cabeçalhos do cliente.
+
 <img src="https://octodex.github.com/images/Professortocat_v2.png" align="right" height="200px" />
 
 Hey camalbazzi-sketch!
