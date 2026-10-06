@@ -6,10 +6,20 @@ Execute `npm install` no diretório `backend`, seguido de `npm start`.
 Para executar os testes, use `npm test` no mesmo diretório.
 
 O backend fornece `POST /upload` (multipart no campo `file`), `GET /documents`
-e `GET /documents/:id/download`. As rotas exigem `req.user.id`, preenchido por
-middleware de identidade confiável antes do roteador. Autenticação não está
-implementada nesta fase; sem essa integração, as rotas retornam `401`.
+e `GET /documents/:id/download`. Na interface, informe seu nome para iniciar
+uma sessão temporária. O servidor gera a identidade usada em `req.user.id` e
+envia um cookie `HttpOnly`; o nome não é usado como ID de proprietário.
+As rotas retornam `401` sem sessão válida.
 `GET /health` permanece público.
+
+`POST /session` recebe JSON `{ "name": "Ana" }`; `GET /session` consulta a
+identidade atual e `DELETE /session` encerra a sessão. A sessão dura 8 horas
+e é restaurada ao atualizar a página enquanto permanecer válida. Nomes iguais
+em sessões diferentes não dão acesso aos mesmos documentos. Não há login com
+senha nem recuperação após encerrar/expirar a sessão, trocar de navegador ou
+reiniciar o backend. Encerrar a sessão torna seus documentos inacessíveis por
+essa identificação simples. Em produção (`NODE_ENV=production`), o cookie
+usa `Secure` e exige HTTPS.
 
 | Variável | Padrão |
 | --- | --- |

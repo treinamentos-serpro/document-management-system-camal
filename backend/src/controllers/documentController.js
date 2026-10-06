@@ -13,6 +13,9 @@ function requireIdentity(req, res, next) {
 
 function handleError(error, req, res, next) {
   if (res.headersSent) return next(error);
+  if (error.type === 'entity.parse.failed') {
+    return sendError(res, 400, 'INVALID_INPUT', 'JSON inválido.');
+  }
   if (error.code === 'DOCUMENT_NOT_FOUND') {
     return sendError(res, 404, error.code, 'Documento não encontrado.');
   }

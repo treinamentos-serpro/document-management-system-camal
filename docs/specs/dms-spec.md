@@ -13,6 +13,7 @@ Permitir que usuários enviem, consultem e baixem documentos armazenados no file
 - Download de documento pelo identificador, respeitando a propriedade.
 - Gravação de arquivos em `backend/storage`, usando `multer` com `diskStorage`.
 - Armazenamento dos metadados em memória enquanto o processo estiver ativo.
+- Identificação simples por nome de exibição e sessão temporária criada pelo servidor, sem senha.
 - Interface web para enviar, listar e baixar documentos.
 
 ### Fora do escopo
@@ -67,6 +68,10 @@ Os metadados são indexados por `id` em memória. `storageName` e caminhos locai
 
 A identidade deve ser fornecida por contexto confiável da requisição, como `req.user.id`, estabelecido por middleware da aplicação. Requisições sem identidade recebem `401 Unauthorized`. A implementação de autenticação não faz parte desta especificação; não se deve confiar em um identificador de proprietário arbitrário enviado pelo cliente.
 
+Na demonstração, o usuário informa um nome de exibição e o servidor gera um ID próprio e um token de sessão aleatório. O token é enviado por cookie `dms_session` com `HttpOnly`, `SameSite=Strict`, validade de 8 horas e `Secure` quando `NODE_ENV=production`. O middleware consulta a sessão em memória e preenche `req.user.id`; o nome informado não define o proprietário nem comprova uma identidade real.
+
+Reabrir ou atualizar a página restaura a identidade enquanto o cookie e a sessão forem válidos. Nomes iguais em sessões diferentes representam proprietários diferentes. Não há recuperação em outro navegador, após encerrar ou expirar a sessão, nem após reiniciar o backend. Os arquivos podem continuar no disco, mas os documentos da sessão encerrada deixam de ser acessíveis por essa identificação simples.
+
 ## 6. Contratos de API
 
 As rotas do backend são `/upload`, `/documents` e `/documents/:id/download`. O frontend as acessa sob `/api` por meio do proxy do Vite.
@@ -108,6 +113,12 @@ Baixa o conteúdo binário do documento. A resposta usa `Content-Disposition: at
 
 **Erros:** `401 Unauthorized` sem identidade; `404 Not Found` para documento inexistente ou pertencente a outro usuário; `500 Internal Server Error` em falha de leitura.
 
+### Identificação simples (backend: `/session`, frontend: `/api/session`)
+
+- `POST /session`: recebe JSON `{ "name": "Ana" }`, com nome não vazio de até 80 caracteres, sem caracteres de controle. Retorna `201` com `{ "user": { "id": "uuid-gerado-pelo-servidor", "name": "Ana" } }` e define o cookie de sessão. Não aceita um ID escolhido pelo cliente; criar uma nova sessão substitui a sessão anterior do navegador. Entrada inválida recebe `400` com `INVALID_INPUT`.
+- `GET /session`: retorna `200` com `{ "user": { "id": "uuid", "name": "Ana" } }`, ou `{ "user": null }` quando não há sessão válida. A resposta não deve ser armazenada em cache.
+- `DELETE /session`: invalida a sessão, remove o cookie e retorna `204` sem corpo. A interface pede confirmação antes de encerrar a sessão, pois não há recuperação dos documentos por nome.
+
 ### Formato de erro
 
 ```json
@@ -119,7 +130,7 @@ Baixa o conteúdo binário do documento. A resposta usa `Content-Disposition: at
 }
 ```
 
-Códigos previstos: `FILE_REQUIRED`, `FILE_TOO_LARGE`, `UNAUTHENTICATED`, `DOCUMENT_NOT_FOUND` e `INTERNAL_ERROR`. As mensagens são em português. Respostas de erro não devem incluir caminhos, stack traces ou detalhes internos.
+Códigos previstos: `FILE_REQUIRED`, `FILE_TOO_LARGE`, `UNAUTHENTICATED`, `DOCUMENT_NOT_FOUND`, `INVALID_INPUT` e `INTERNAL_ERROR`. As mensagens são em português. Respostas de erro não devem incluir caminhos, stack traces ou detalhes internos.
 
 ### Configuração
 
@@ -142,6 +153,7 @@ Não há lista de tipos de arquivo permitidos definida nesta fase. O MIME inform
 - Upload usa `multer` com `diskStorage`; o nome interno é gerado pela aplicação.
 - Frontend organizado por componentes, páginas e serviços; chamadas HTTP centralizadas em serviço `fetch` sob `/api`.
 - O mecanismo de autenticação é uma integração externa que deve preencher a identidade confiável da requisição.
+- A identificação de demonstração usa sessão temporária em memória, resolvida no backend a partir de cookie opaco; ela não implementa cadastro, senha ou autenticação real.
 - Após reinício, arquivos podem continuar no disco, mas os metadados em memória não são recuperados; reindexação não faz parte do escopo.
 
 ## 8. Plano de execução

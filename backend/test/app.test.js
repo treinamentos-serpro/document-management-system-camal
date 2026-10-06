@@ -8,6 +8,9 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const createDocumentRouter = require('../src/routes/documentRoutes');
 const createDocumentService = require('../src/services/documentService');
+const createSessionRouter = require('../src/routes/sessionRoutes');
+const { handleError } = require('../src/controllers/documentController');
+const createSessionRepository = require('../src/repositories/sessionRepository');
 
 test('o app backend é exportado', () => {
   assert.ok(app, 'o app deve estar definido');
@@ -164,4 +167,97 @@ test('falha ao salvar metadados remove o arquivo enviado', async () => {
   await assert.rejects(service.upload({ filename: 'arquivo-interno' }, 'alice'),
     (error) => error === failure);
   assert.deepStrictEqual(removed, ['arquivo-interno']);
+});
+
+test('identificação por sessão mantém documentos isolados', async (context) => {
+  const storageDir = await mkdtemp(path.join(tmpdir(), 'dms-session-test-'));
+  const testApp = express();
+  testApp.use(express.json());
+  testApp.use(createSessionRouter());
+  testApp.use(createDocumentRouter({ storageDir }));
+  testApp.use(handleError);
+  const server = testApp.listen(0, '127.0.0.1');
+  context.after(async () => {
+    await new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); });
+    await rm(storageDir, { recursive: true, force: true });
+  });
+  await once(server, 'listening');
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const request = (endpoint, options) => fetch(`${baseUrl}${endpoint}`, options);
+
+  const anonymous = await request('/session');
+  assert.deepStrictEqual(await anonymous.json(), { user: null });
+  assert.strictEqual((await request('/documents')).status, 401);
+
+  for (const name of ['', ' '.repeat(3), 'x'.repeat(81), 123]) {
+    const invalid = await request('/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    assert.strictEqual(invalid.status, 400);
+    assert.strictEqual(invalid.headers.get('set-cookie'), null);
+  }
+  const malformed = await request('/session', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{',
+  });
+  assert.strictEqual(malformed.status, 400);
+  assert.deepStrictEqual(await malformed.json(), {
+    error: { code: 'INVALID_INPUT', message: 'JSON inválido.' },
+  });
+
+  async function identify() {
+    const response = await request('/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: ' Ana ', owner: 'chosen-id' }),
+    });
+    assert.strictEqual(response.status, 201);
+    const cookieHeader = response.headers.get('set-cookie');
+    assert.match(cookieHeader, /HttpOnly/);
+    assert.match(cookieHeader, /SameSite=Strict/);
+    assert.match(cookieHeader, /Max-Age=28800/);
+    const { user } = await response.json();
+    assert.strictEqual(user.name, 'Ana');
+    assert.notStrictEqual(user.id, 'chosen-id');
+    return { user, cookie: cookieHeader.split(';')[0] };
+  }
+
+  const first = await identify();
+  const current = await request('/session', { headers: { cookie: first.cookie } });
+  assert.deepStrictEqual(await current.json(), { user: first.user });
+  const form = new FormData();
+  form.append('file', new Blob(['conteudo']), 'relatorio.txt');
+  const uploaded = await request('/upload', {
+    method: 'POST', headers: { cookie: first.cookie }, body: form,
+  });
+  assert.strictEqual(uploaded.status, 201);
+  const document = await uploaded.json();
+  assert.strictEqual(document.owner, first.user.id);
+
+  const second = await identify();
+  assert.notStrictEqual(first.user.id, second.user.id);
+  const otherDocuments = await request('/documents', { headers: { cookie: second.cookie } });
+  assert.deepStrictEqual(await otherDocuments.json(), []);
+  const forbidden = await request(`/documents/${document.id}/download`, {
+    headers: { cookie: second.cookie },
+  });
+  assert.strictEqual(forbidden.status, 404);
+  const download = await request(`/documents/${document.id}/download`, {
+    headers: { cookie: first.cookie },
+  });
+  assert.strictEqual(await download.text(), 'conteudo');
+
+  const forged = await request('/documents', {
+    headers: { cookie: `dms_session=${'a'.repeat(64)}`, 'x-user-id': first.user.id },
+  });
+  assert.strictEqual(forged.status, 401);
+  const ended = await request('/session', { method: 'DELETE', headers: { cookie: first.cookie } });
+  assert.strictEqual(ended.status, 204);
+  assert.match(ended.headers.get('set-cookie'), /Expires=Thu, 01 Jan 1970/);
+  assert.strictEqual((await request('/documents', { headers: { cookie: first.cookie } })).status, 401);
+});
+
+test('sessões expiradas não fornecem identidade', () => {
+  const repository = createSessionRepository();
+  repository.save('expired', { user: { id: 'alice' }, expiresAt: Date.now() - 1 });
+  assert.strictEqual(repository.findByToken('expired'), undefined);
 });
