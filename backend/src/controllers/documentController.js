@@ -4,6 +4,11 @@ function sendError(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
 }
 
+function toPublicMetadata(document) {
+  const { storageName, ...metadata } = document;
+  return metadata;
+}
+
 function requireIdentity(req, res, next) {
   if (typeof req.user?.id !== 'string' || !req.user.id.trim()) {
     return sendError(res, 401, 'UNAUTHENTICATED', 'Identidade de usuário obrigatória.');
@@ -39,10 +44,10 @@ function createDocumentController(service) {
         return sendError(res, 400, 'FILE_REQUIRED', 'Arquivo obrigatório.');
       }
       const document = await service.upload(req.file, req.user.id);
-      res.status(201).json(document);
+      res.status(201).json(toPublicMetadata(document));
     },
     list(req, res) {
-      res.json(service.list(req.user.id));
+      res.json(service.list(req.user.id).map(toPublicMetadata));
     },
     download(req, res, next) {
       const document = service.download(req.params.id, req.user.id);

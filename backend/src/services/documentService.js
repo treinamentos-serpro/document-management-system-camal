@@ -1,10 +1,5 @@
 const { randomUUID } = require('node:crypto');
 
-function publicMetadata(document) {
-  const { storageName, ...metadata } = document;
-  return metadata;
-}
-
 function createDocumentService(repository) {
   return {
     async upload(file, owner) {
@@ -18,14 +13,14 @@ function createDocumentService(repository) {
           uploadedAt: new Date().toISOString(),
           owner,
         });
-        return publicMetadata(document);
+        return document;
       } catch (error) {
         await repository.removeFile(file.filename);
         throw error;
       }
     },
     list(owner) {
-      return repository.findByOwner(owner).map(publicMetadata);
+      return repository.findByOwner(owner);
     },
     download(id, owner) {
       const document = repository.findById(id);
